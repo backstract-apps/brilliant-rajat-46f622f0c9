@@ -1,0 +1,16 @@
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: brilliant-rajat-46f622f0c9-hc
+  namespace: apps-release
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        port: 7070
+        requestPath: /docs
+  targetRef:
+    group: ""
+    kind: Service
+    name: brilliant-rajat-46f622f0c9-srv

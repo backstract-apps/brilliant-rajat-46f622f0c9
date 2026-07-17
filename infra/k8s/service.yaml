@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: brilliant-rajat-46f622f0c9-srv
+  namespace: apps-release
+spec:
+  selector:
+    app: brilliant-rajat-46f622f0c9
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 7070
+  type: ClusterIP

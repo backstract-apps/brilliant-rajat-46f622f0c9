@@ -1,0 +1,24 @@
+kind: HTTPScaledObject
+apiVersion: http.keda.sh/v1alpha1
+metadata:
+  name: brilliant-rajat-46f622f0c9-scaler
+  namespace: apps-release
+spec:
+  hosts:
+    - cc1fbde45ead-in-south-01.mayson.dev
+  pathPrefixes:
+    - /us-east-2-backstractelb-8e5891-coll-cd44f875ae9d4b17900f8389021a2daf/ # e.g. /infallible-naveen-... brilliant-rajat-46f622f0c9/
+  scaleTargetRef:
+    name: brilliant-rajat-46f622f0c9-depl
+    kind: Deployment
+    apiVersion: apps/v1
+    service: brilliant-rajat-46f622f0c9-srv # e.g. coll-8a2a...-srv
+    port: 80
+  replicas:
+    min: 0
+    max: 10
+  scaledownPeriod: 1800 #inseconds
+  scalingMetric:
+    requestRate:
+      targetValue: 100
+      window: 1m
