@@ -51,7 +51,7 @@ jobs:
     # 1. Dynamically provision Runtime Secrets & ECR Credentials into GKE
     - name: Provision Secrets & ECR Credentials in GKE
       env:
-        K8S_ENV_SECRET: ${{ secrets.K8S_ENV_FILE }}
+        K8S_ENV_SECRET_B64: ${{ secrets.K8S_ENV_FILE }}
       run: |
         # Ensure target namespace exists
         kubectl get ns ${{ env.NAMESPACE }} || kubectl create ns ${{ env.NAMESPACE }}
@@ -63,6 +63,16 @@ jobs:
           --docker-username=AWS \
           --docker-password="$ECR_PASS" \
           --namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+        # Decode the Base64 secret into a valid .env file
+        echo "$K8S_ENV_SECRET_B64" | base64 --decode > .env
+
+        # Create/Update App Environment Secrets directly in GKE
+        kubectl create secret generic app-secrets-coll-cd44f875ae9d4b17900f8389021a2daf \
+          --namespace ${{ env.NAMESPACE }} --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
+
+        # Clean up
+        rm -f .env
 
         # SAFELY write the secret to .env using an environment variable
         printf '%s\n' "$K8S_ENV_SECRET" > .env
