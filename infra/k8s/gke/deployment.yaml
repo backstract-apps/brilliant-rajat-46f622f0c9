@@ -11,7 +11,7 @@ metadata:
     backstract.io/token-scope: "storage.*,cache.*"
 type: Opaque
 stringData:
-  token: "PLACEHOLDER_BST_TOKEN_REPLACE_AT_RUNTIME"
+  token: "bst_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiYWNrc3RyYWN0LXBsYXRmb3JtIiwic3ViIjoiY29sbF9jZDQ0Zjg3NWFlOWQ0YjE3OTAwZjgzODkwMjFhMmRhZiIsImF1ZCI6ImJhY2tzdHJhY3QtcmVzb3VyY2VzIiwiZW52IjoicmVsZWFzZSIsImlhdCI6MTc4NDI5MzU4OCwiZXhwIjoxNzkyMDY5NTg4LCJzY29wZXMiOlsic3RvcmFnZS4qIiwiY2FjaGUuKiJdLCJ0b2tlbl90eXBlIjoiYnN0Iiwib3duZXJfaWQiOiI2M2FiMjBkYmM3MGE0NDg4OTk0NWUzZTU0N2IzMDJmOCJ9.sG-TjX4hU_jLZ1z9QCTwWTFew9X5cOxLtVj8rB8vRRo"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -20,97 +20,93 @@ metadata:
   namespace: apps-release
   labels:
     app: brilliant-rajat-46f622f0c9
-    release: prometheus
+    release: prometheus # Added label for PodMonitor discovery
 spec:
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: brilliant-rajat-46f622f0c9
-      release: prometheus
+      release: prometheus # Added label for PodMonitor discovery
   template:
     metadata:
       labels:
         app: brilliant-rajat-46f622f0c9
-        release: prometheus
+        release: prometheus # Added label for PodMonitor discovery
     spec:
-      runtimeClassName: gvisor
-      imagePullSecrets:
-        - name: aws-ecr-creds
       serviceAccountName: alloy-service-account
       volumes:
+      - name: alloy-config
+        configMap:
+          name: alloy-configmap
+          items:
+          - key: alloy.river
+            path: config.alloy
+
+      - name: podinfo
+        downwardAPI:
+          items:
+          - path: "labels"
+            fieldRef:
+              fieldPath: metadata.labels
+          - path: "annotations"
+            fieldRef:
+              fieldPath: metadata.annotations
+          effect: "NoSchedule"
+      - name: brilliant-rajat-46f622f0c9
+        image: 216084506783.dkr.ecr.ap-south-1.amazonaws.com/backstract_apps:brilliant-rajat-46f622f0c9
+        imagePullPolicy: Always
+        env:
+        - name: BACKSTRACT_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: brilliant-rajat-46f622f0c9-bst-token
+              key: token
+        - name: BACKSTRACT_PLATFORM_URL
+          value: "https://api-release.beemerbenzbentley.site/sigma"
+        envFrom:
+        - configMapRef:
+            name: env-configmap-coll-cd44f875ae9d4b17900f8389021a2daf-deployment-09d23e3d-ec92-4eb2-a214-fd8ee96ea6f9
+        - secretRef:
+            name: app-secrets-coll-cd44f875ae9d4b17900f8389021a2daf
+        ports:
+        - containerPort: 7070
+          name: http # Optional for HTTP traffic
+        - containerPort: 7070 #same as the deployed code
+          name: metrics # Added port for metrics scraping
+        resources:
+          requests:
+            memory: "210Mi"
+            cpu: "50m"
+          limits:
+            memory: "500Mi"
+            cpu: "300m"
+
+      - name: alloy-sidecar
+        image: grafana/alloy:latest
+        args:
+        - "run"
+        - "/etc/alloy/config.alloy"
+        - "--server.http.listen-addr=0.0.0.0:12345"
+        ports:
+        - name: otlp-grpc
+          containerPort: 4317
+          protocol: TCP
+        - name: otlp-http
+          containerPort: 4318
+          protocol: TCP
+        - name: alloy-http
+          containerPort: 12345
+          protocol: TCP
+        volumeMounts:
         - name: alloy-config
-          configMap:
-            name: alloy-configmap
-            items:
-              - key: alloy.river
-                path: config.alloy
+          mountPath: /etc/alloy
         - name: podinfo
-          downwardAPI:
-            items:
-              - path: "labels"
-                fieldRef:
-                  fieldPath: metadata.labels
-              - path: "annotations"
-                fieldRef:
-                  fieldPath: metadata.annotations
-      containers:
-        - name: brilliant-rajat-46f622f0c9
-          image: 216084506783.dkr.ecr.ap-south-1.amazonaws.com/backstract_apps:brilliant-rajat-46f622f0c9
-          imagePullPolicy: Always
-          env:
-            - name: BACKSTRACT_AUTH_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: brilliant-rajat-46f622f0c9-bst-token
-                  key: token
-            - name: BACKSTRACT_PLATFORM_URL
-              value: "https://api-release.beemerbenzbentley.site/sigma"
-          envFrom:
-            - configMapRef:
-                name: env-configmap-coll-cd44f875ae9d4b17900f8389021a2daf-deployment-09d23e3d-ec92-4eb2-a214-fd8ee96ea6f9
-            - secretRef:
-                name: app-secrets-coll-cd44f875ae9d4b17900f8389021a2daf
-            - secretRef:
-                name: app-resources-secrets-coll-cd44f875ae9d4b17900f8389021a2daf
-                optional: true
-          ports:
-            - containerPort: 8080
-              name: http
-            - containerPort: 8080
-              name: metrics
-          resources:
-            requests:
-              memory: "300Mi"
-              cpu: "50m"
-            limits:
-              memory: "300Mi"
-              cpu: "1"
-        - name: alloy-sidecar
-          image: grafana/alloy:latest
-          args:
-            - "run"
-            - "/etc/alloy/config.alloy"
-            - "--server.http.listen-addr=0.0.0.0:12345"
-          ports:
-            - name: otlp-grpc
-              containerPort: 4317
-              protocol: TCP
-            - name: otlp-http
-              containerPort: 4318
-              protocol: TCP
-            - name: alloy-http
-              containerPort: 12345
-              protocol: TCP
-          volumeMounts:
-            - name: alloy-config
-              mountPath: /etc/alloy
-            - name: podinfo
-              mountPath: /etc/podinfo
-              readOnly: true
-          resources:
-            requests:
-              memory: "100Mi"
-              cpu: "20m"
-            limits:
-              memory: "50Mi"
-              cpu: "100m"
+          mountPath: /etc/podinfo
+          readOnly: true
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "20m"
+          limits:
+            memory: "384Mi"
+            cpu: "100m"
