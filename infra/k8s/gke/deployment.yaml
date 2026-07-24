@@ -33,6 +33,9 @@ spec:
         app: brilliant-rajat-46f622f0c9
         release: prometheus # Added label for PodMonitor discovery
     spec:
+      runtimeClassName: gvisor
+      imagePullSecrets:
+        - name: aws-ecr-creds
       serviceAccountName: alloy-service-account
       volumes:
       - name: alloy-config
