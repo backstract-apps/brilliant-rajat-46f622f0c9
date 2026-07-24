@@ -52,6 +52,7 @@ spec:
             fieldRef:
               fieldPath: metadata.annotations
           effect: "NoSchedule"
+      containers:
       - name: brilliant-rajat-46f622f0c9
         image: 216084506783.dkr.ecr.ap-south-1.amazonaws.com/backstract_apps:brilliant-rajat-46f622f0c9
         imagePullPolicy: Always
