@@ -29,6 +29,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
@@ -64,47 +66,41 @@ jobs:
           --docker-password="$ECR_PASS" \
           --namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
-        # Decode the Base64 secret into a valid .env file
+        # Safely decode the Base64 secret into a temporary .env file
         echo "$K8S_ENV_SECRET_B64" | base64 --decode > .env
 
-        # Create/Update App Environment Secrets directly in GKE
+        # Create/Update App Environment Secrets in GKE
         kubectl create secret generic app-secrets-coll-cd44f875ae9d4b17900f8389021a2daf \
           --namespace ${{ env.NAMESPACE }} --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
 
-        # Clean up
+        # Clean up sensitive temporary file
         rm -f .env
 
-        # SAFELY write the secret to .env using an environment variable
-        printf '%s\n' "$K8S_ENV_SECRET" > .env
-
-        # Create/Update App Environment Secrets directly in GKE
-        kubectl create secret generic app-secrets-coll-cd44f875ae9d4b17900f8389021a2daf \
-          --namespace ${{ env.NAMESPACE }} --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
-
-        # Clean up
-        rm -f .env
-
-    # 2. Sanitize deployment manifest for GKE Autopilot
+    # 2. Sanitize deployment manifest for GKE Autopilot (In-Place Fix)
     - name: Sanitize Manifests for GKE
       env:
         BST_TOKEN: ${{ secrets.BACKSTRACT_AUTH_TOKEN }}
       run: |
-        # Inject Backstract token placeholder if present
-        if [ -f "infra/k8s/deployment.yaml" ]; then
-          awk -v token="${BST_TOKEN}" '{gsub(/PLACEHOLDER_BST_TOKEN_REPLACE_AT_RUNTIME/, token)}1' "infra/k8s/deployment.yaml" > /tmp/clean_deployment.yaml
-        elif [ -f "infra/k8s/gke/deployment.yaml" ]; then
-          awk -v token="${BST_TOKEN}" '{gsub(/PLACEHOLDER_BST_TOKEN_REPLACE_AT_RUNTIME/, token)}1' "infra/k8s/gke/deployment.yaml" > /tmp/clean_deployment.yaml
+        TARGET_FILE="infra/k8s/gke/deployment.yaml"
+
+        # Fallback: copy root file ONLY if target GKE file doesn't exist yet
+        if [ ! -f "$TARGET_FILE" ] && [ -f "infra/k8s/deployment.yaml" ]; then
+          mkdir -p infra/k8s/gke
+          cp infra/k8s/deployment.yaml "$TARGET_FILE"
         fi
 
-        # Strip EKS-specific tolerations and affinity
-        sed -i '/tolerations:/,+3d' /tmp/clean_deployment.yaml
-        sed -i '/affinity:/,+8d' /tmp/clean_deployment.yaml
+        if [ -f "$TARGET_FILE" ]; then
+          # Inject BST token placeholder if present
+          awk -v token="${BST_TOKEN}" '{gsub(/PLACEHOLDER_BST_TOKEN_REPLACE_AT_RUNTIME/, token)}1' "$TARGET_FILE" > /tmp/clean_deployment.yaml
 
-        # Save clean manifest in infra/k8s/gke/
-        mkdir -p infra/k8s/gke
-        mv /tmp/clean_deployment.yaml infra/k8s/gke/deployment.yaml
+          # Strip EKS-specific tolerations and affinity safely
+          sed -i '/tolerations:/,+3d' /tmp/clean_deployment.yaml
+          sed -i '/affinity:/,+8d' /tmp/clean_deployment.yaml
 
-    # 3. Commit clean manifests back to Git for Argo CD
+          mv /tmp/clean_deployment.yaml "$TARGET_FILE"
+        fi
+
+    # 3. Commit sanitized manifests back to Git for Argo CD
     - name: Commit Sanitized Manifests
       run: |
         git config --global user.name "github-actions[bot]"
@@ -122,17 +118,25 @@ jobs:
           echo "No manifest changes to commit."
         fi
 
-    # 4. Notify Argo CD to sync immediately
+    # 4. Notify Argo CD to sync immediately (Valid Push Payload)
     - name: Trigger Argo CD Webhook Sync
       run: |
-        # 1. Force ApplicationSet to discover this new repository instantly
-        curl -X POST -k https://argocd.backstract.io/api/webhook \
-          -H "Content-Type: application/json" \
-          -H "X-GitHub-Event: repository" \
-          -d '{"action": "created", "repository": {"html_url": "'"${{ github.server_url }}/${{ github.repository }}"'"}}'
+        PAYLOAD=$(cat <<EOF
+        {
+          "ref": "refs/heads/master",
+          "repository": {
+            "name": "${{ github.event.repository.name }}",
+            "html_url": "${{ github.server_url }}/${{ github.repository }}",
+            "clone_url": "${{ github.server_url }}/${{ github.repository }}.git"
+          },
+          "head_commit": {
+            "id": "${{ github.sha }}"
+          }
+        }
+        EOF
+        )
 
-        # 2. Tell Argo CD to pull manifests and deploy immediately
         curl -X POST -k https://argocd.backstract.io/api/webhook \
           -H "Content-Type: application/json" \
           -H "X-GitHub-Event: push" \
-          -d '{"ref": "refs/heads/master", "repository": {"html_url": "'"${{ github.server_url }}/${{ github.repository }}"'"}}'
+          -d "$PAYLOAD"
